@@ -1,6 +1,7 @@
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("@rules_cc//cc:defs.bzl", "cc_library")
 load("//bazel:cc_proto_library.bzl", "cc_proto_library")
+load("//bazel:java_proto_library.bzl", "java_proto_library")
 load("//bazel:proto_library.bzl", "proto_library")
 load("//build_defs:cpp_opts.bzl", "COPTS")
 
@@ -311,6 +312,13 @@ proto_library(
 cc_proto_library(
     name = "json_enumval_custom_string_cc_proto",
     testonly = True,
+    deps = [":json_enumval_custom_string_proto"],
+)
+
+java_proto_library(
+    name = "json_enumval_custom_string_java_proto",
+    testonly = True,
+    visibility = ["//java:__subpackages__"],
     deps = [":json_enumval_custom_string_proto"],
 )
 
