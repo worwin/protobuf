@@ -69,6 +69,9 @@ static PyObject* PyFrame_GetGlobals(PyFrameObject* frame) {
 }
 #endif
 
+// Must be included last.
+#include "google/protobuf/port_def.inc"
+
 namespace google {
 namespace protobuf {
 namespace python {
@@ -292,17 +295,24 @@ static PyObject* GetOrBuildMessageInDefaultPool(
   }
   CMessage* cmsg = reinterpret_cast<CMessage*>(value.get());
 
+  Message* cmsg_message = cmessage::AssureWritable(cmsg);
+  if (cmsg_message == nullptr) {
+    return nullptr;
+  }
+
   const Reflection* reflection = message.GetReflection();
   const UnknownFieldSet& unknown_fields(reflection->GetUnknownFields(message));
   if (unknown_fields.empty()) {
-    cmsg->message->CopyFrom(message);
+    cmsg_message->CopyFrom(message);
   } else {
     // Reparse options string!  XXX call cmessage::MergeFromString
-    if (!Reparse(message_factory, message, cmsg->message)) {
+    if (!Reparse(message_factory, message, cmsg_message)) {
       PyErr_Format(PyExc_ValueError, "Error reparsing Options message");
       return nullptr;
     }
   }
+
+  cmsg->state = MESSAGE_FROZEN;
 
   // Cache the result.
   {
@@ -360,9 +370,12 @@ static PyObject* CopyToPythonProto(const DescriptorClass* descriptor,
                  std::string(self_descriptor->full_name()).c_str());
     return nullptr;
   }
-  cmessage::AssureWritable(message);
+  Message* mutable_message = cmessage::AssureWritable(message);
+  if (mutable_message == nullptr) {
+    return nullptr;
+  }
   DescriptorProtoClass* descriptor_message =
-      static_cast<DescriptorProtoClass*>(message->message);
+      static_cast<DescriptorProtoClass*>(mutable_message);
   descriptor->CopyTo(descriptor_message);
   // Custom options might in unknown extensions. Reparse
   // the descriptor_message. Can't skip reparse when options unknown
@@ -2130,3 +2143,5 @@ bool InitDescriptor() {
 }  // namespace python
 }  // namespace protobuf
 }  // namespace google
+
+#include "google/protobuf/port_undef.inc"
