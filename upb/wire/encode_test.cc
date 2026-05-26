@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 #include "upb/mem/arena.h"
 #include "upb/message/array.h"
+#include "upb/message/internal/accessors.h"
 #include "upb/message/internal/map_sorter.h"
 #include "upb/message/message.h"
 #include "upb/mini_table/extension.h"
@@ -200,6 +201,39 @@ TEST(EncodeTest, EncodeExtensionMaxDepthExceeded) {
   DoEncodeExtensionMaxDepthExceeded(err, e, ext, ext_val, buf, size);
 
   _upb_mapsorter_destroy(&e.sorter);
+  upb_Arena_Free(arena);
+}
+
+TEST(EncodeTest, EncodeNonCanonicalExtensionSuccess) {
+  upb_Arena* arena = upb_Arena_New();
+
+  upb_wire_test_TestExtensions* msg = upb_wire_test_TestExtensions_new(arena);
+
+  // Attach scalar extension as non-canonical
+  int32_t val = 42;
+  UPB_PRIVATE(_upb_Message_SetNonCanonicalExtension)(
+      (upb_Message*)msg, upb_wire_test_ext_i32_ext, &val, arena);
+
+  // Encode the message.
+  char* buf;
+  size_t size;
+  upb_EncodeStatus status =
+      upb_Encode((upb_Message*)msg, &upb_0wire_0test__TestExtensions_msg_init,
+                 0, arena, &buf, &size);
+  EXPECT_EQ(status, kUpb_EncodeStatus_Ok);
+  EXPECT_GT(size, 0u);
+
+  // Verify that the encoded bytes can be decoded back using the registry!
+  upb_ExtensionRegistry* ext_reg = upb_ExtensionRegistry_New(arena);
+  const upb_MiniTableExtension* ext_array[1] = {upb_wire_test_ext_i32_ext};
+  upb_ExtensionRegistry_AddArray(ext_reg, ext_array, 1);
+
+  upb_wire_test_TestExtensions* decoded_msg =
+      upb_wire_test_TestExtensions_parse_ex(buf, size, ext_reg, 0, arena);
+  EXPECT_NE(decoded_msg, nullptr);
+  EXPECT_TRUE(upb_wire_test_has_ext_i32(decoded_msg));
+  EXPECT_EQ(upb_wire_test_ext_i32(decoded_msg), 42);
+
   upb_Arena_Free(arena);
 }
 

@@ -727,11 +727,14 @@ static char* encode_exts(char* ptr, upb_encstate* e, const upb_MiniTable* m,
   /* Encode all extensions together. Unlike C++, we do not attempt to keep
    * these in field number order relative to normal fields or even to each
    * other. */
-  uintptr_t iter = kUpb_Message_ExtensionBegin;
-  const upb_MiniTableExtension* ext;
-  upb_MessageValue ext_val;
-  if (!UPB_PRIVATE(_upb_Message_NextExtensionReverse)(msg, &ext, &ext_val,
-                                                      &iter)) {
+  size_t count = 0;
+  for (size_t i = 0; i < in->size; i++) {
+    bool is_any_extension =
+        upb_TaggedAuxPtr_IsExtension(in->aux_data[i]) ||
+        upb_TaggedAuxPtr_IsNonCanonicalExtension(in->aux_data[i]);
+    count += is_any_extension;
+  }
+  if (count == 0) {
     // Message has no extensions.
     return ptr;
   }
@@ -749,11 +752,23 @@ static char* encode_exts(char* ptr, upb_encstate* e, const upb_MiniTable* m,
     }
     _upb_mapsorter_popmap(&e->sorter, &sorted);
   } else {
-    do {
-      ptr = encode_ext(ptr, e, ext, ext_val,
-                       m->UPB_PRIVATE(ext) == kUpb_ExtMode_IsMessageSet);
-    } while (UPB_PRIVATE(_upb_Message_NextExtensionReverse)(msg, &ext, &ext_val,
-                                                            &iter));
+    size_t i = in->size;
+    while (i > 0) {
+      i--;
+      upb_TaggedAuxPtr tagged_ptr = in->aux_data[i];
+      if (upb_TaggedAuxPtr_IsExtension(tagged_ptr)) {
+        const upb_Extension* ext = upb_TaggedAuxPtr_Extension(tagged_ptr);
+        ptr = encode_ext(ptr, e, ext->ext, ext->data,
+                         UPB_PRIVATE(_upb_MiniTable_ExtModeBase)(m) ==
+                             kUpb_ExtMode_IsMessageSet);
+      } else if (upb_TaggedAuxPtr_IsNonCanonicalExtension(tagged_ptr)) {
+        const upb_Extension* ext =
+            upb_TaggedAuxPtr_NonCanonicalExtension(tagged_ptr);
+        ptr = encode_ext(ptr, e, ext->ext, ext->data,
+                         UPB_PRIVATE(_upb_MiniTable_ExtModeBase)(m) ==
+                             kUpb_ExtMode_IsMessageSet);
+      }
+    }
   }
   return ptr;
 }
@@ -775,7 +790,10 @@ char* encode_message(char* ptr, upb_encstate* e, const upb_Message* msg,
     uintptr_t iter = kUpb_Message_UnknownBegin;
     upb_StringView unknown;
     // Need to write in reverse order, but iteration is in-order; scan to
-    // reserve capacity up front, then write in-order
+    // reserve capacity up front, then write in-order.
+    //
+    // Encode unknown fields only. Non-canonical extension encoding is handled
+    // in encode_exts below.
     while (upb_Message_NextUnknown(msg, &unknown, &iter)) {
       unknown_size += unknown.size;
     }
